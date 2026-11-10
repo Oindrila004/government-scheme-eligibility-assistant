@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+
+# Java / Maven
+**/target/
+*.class
+*.jar
+*.war
+
+# Frontend
+**/node_modules/
+**/dist/
+**/build/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+.factorypath
+.metadata/
