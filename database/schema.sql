@@ -1,0 +1,255 @@
+
+-- =====================================================
+-- Government Form & Scheme Eligibility Assistant
+-- PostgreSQL Database Schema
+-- =====================================================
+
+-- 1. USER ACCOUNT
+CREATE TABLE app_user (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    account_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. USER PROFILE
+CREATE TABLE user_profile (
+    user_id BIGINT PRIMARY KEY,
+    date_of_birth DATE,
+    state VARCHAR(100),
+    district VARCHAR(100),
+    occupation VARCHAR(100),
+    annual_income NUMERIC(12,2),
+    education_level VARCHAR(100),
+    family_size INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_profile_user
+        FOREIGN KEY (user_id)
+        REFERENCES app_user(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT chk_annual_income
+        CHECK (annual_income IS NULL OR annual_income >= 0),
+
+    CONSTRAINT chk_family_size
+        CHECK (family_size IS NULL OR family_size > 0)
+);
+
+-- 3. GOVERNMENT SCHEMES
+CREATE TABLE scheme (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    scheme_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    department VARCHAR(200),
+    official_url TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. ELIGIBILITY RULES
+CREATE TABLE eligibility_rule (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    scheme_id BIGINT NOT NULL,
+    rule_name VARCHAR(150) NOT NULL,
+    rule_type VARCHAR(50) NOT NULL,
+    rule_definition JSONB NOT NULL,
+    is_mandatory BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_rule_scheme
+        FOREIGN KEY (scheme_id)
+        REFERENCES scheme(id)
+        ON DELETE CASCADE
+);
+
+-- 5. OFFICIAL SCHEME DOCUMENTS
+CREATE TABLE scheme_document (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    scheme_id BIGINT NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    storage_key TEXT NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    file_size_bytes BIGINT NOT NULL,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_scheme_document
+        FOREIGN KEY (scheme_id)
+        REFERENCES scheme(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT chk_scheme_file_size
+        CHECK (file_size_bytes > 0)
+);
+
+-- 6. USER-UPLOADED DOCUMENTS
+CREATE TABLE user_document (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    document_type VARCHAR(100),
+    original_filename VARCHAR(255) NOT NULL,
+    storage_key TEXT NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    file_size_bytes BIGINT NOT NULL,
+    processing_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_document_user
+        FOREIGN KEY (user_id)
+        REFERENCES app_user(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT chk_user_file_size
+        CHECK (file_size_bytes > 0)
+);
+
+-- 7. ELIGIBILITY ASSESSMENTS
+CREATE TABLE eligibility_assessment (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
+
+    CONSTRAINT fk_assessment_user
+        FOREIGN KEY (user_id)
+        REFERENCES app_user(id)
+        ON DELETE CASCADE
+);
+
+-- 8. ASSESSMENT RESULTS
+CREATE TABLE assessment_result (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    assessment_id BIGINT NOT NULL,
+    scheme_id BIGINT NOT NULL,
+    eligibility_status VARCHAR(30) NOT NULL,
+    explanation TEXT,
+    missing_information JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_result_assessment
+        FOREIGN KEY (assessment_id)
+        REFERENCES eligibility_assessment(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_result_scheme
+        FOREIGN KEY (scheme_id)
+        REFERENCES scheme(id),
+
+    CONSTRAINT uq_assessment_scheme
+        UNIQUE (assessment_id, scheme_id),
+
+    CONSTRAINT chk_eligibility_status
+        CHECK (
+            eligibility_status IN (
+                'SATISFIED',
+                'NOT_SATISFIED',
+                'CANNOT_DETERMINE'
+            )
+        )
+);
+
+-- 9. ASSESSMENT DOCUMENTS
+CREATE TABLE assessment_document (
+    assessment_id BIGINT NOT NULL,
+    document_id BIGINT NOT NULL,
+
+    PRIMARY KEY (assessment_id, document_id),
+
+    CONSTRAINT fk_assessment_document_assessment
+        FOREIGN KEY (assessment_id)
+        REFERENCES eligibility_assessment(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_assessment_document_document
+        FOREIGN KEY (document_id)
+        REFERENCES user_document(id)
+        ON DELETE CASCADE
+);
+
+-- 10. SUBSCRIPTION PLANS
+CREATE TABLE subscription_plan (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    plan_name VARCHAR(100) NOT NULL UNIQUE,
+    price NUMERIC(10,2) NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'INR',
+    billing_interval VARCHAR(20) NOT NULL,
+    included_uploads INTEGER NOT NULL DEFAULT 3,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_plan_price CHECK (price >= 0),
+    CONSTRAINT chk_included_uploads CHECK (included_uploads >= 0)
+);
+
+-- 11. USER SUBSCRIPTIONS
+CREATE TABLE user_subscription (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    plan_id BIGINT NOT NULL,
+    gateway_subscription_id VARCHAR(255) UNIQUE,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    starts_at TIMESTAMPTZ,
+    ends_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_subscription_user
+        FOREIGN KEY (user_id)
+        REFERENCES app_user(id),
+
+    CONSTRAINT fk_subscription_plan
+        FOREIGN KEY (plan_id)
+        REFERENCES subscription_plan(id)
+);
+
+-- 12. PAYMENTS
+CREATE TABLE payment (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    subscription_id BIGINT,
+    gateway_payment_id VARCHAR(255) UNIQUE,
+    amount NUMERIC(10,2) NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'INR',
+    payment_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    paid_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_payment_user
+        FOREIGN KEY (user_id)
+        REFERENCES app_user(id),
+
+    CONSTRAINT fk_payment_subscription
+        FOREIGN KEY (subscription_id)
+        REFERENCES user_subscription(id),
+
+    CONSTRAINT chk_payment_amount
+        CHECK (amount >= 0)
+);
+
+-- =====================================================
+-- INDEXES
+-- =====================================================
+
+CREATE INDEX idx_scheme_name
+    ON scheme(scheme_name);
+
+CREATE INDEX idx_eligibility_rule_scheme
+    ON eligibility_rule(scheme_id);
+
+CREATE INDEX idx_user_document_user
+    ON user_document(user_id);
+
+CREATE INDEX idx_assessment_user
+    ON eligibility_assessment(user_id);
+
+CREATE INDEX idx_assessment_result_assessment
+    ON assessment_result(assessment_id);
+
+CREATE INDEX idx_subscription_user
+    ON user_subscription(user_id);
+
+CREATE INDEX idx_payment_user
+    ON payment(user_id);

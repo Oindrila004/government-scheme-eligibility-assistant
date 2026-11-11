@@ -5,7 +5,6 @@
 # Java / Maven
 **/target/
 *.class
-*.jar
 *.war
 
 # Frontend
